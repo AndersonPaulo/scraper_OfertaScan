@@ -1,4 +1,4 @@
-# scraper_shopee.py (VERSÃO CORRIGIDA)
+# scraper_shopee_json.py
 
 import time
 import pandas as pd
@@ -6,13 +6,14 @@ from playwright.sync_api import sync_playwright
 from datetime import datetime
 import os
 import re
+import json
 
 # --- ⚙️ CONFIGURAÇÕES ---
 SHOPEE_USER_DATA_DIR = "/home/anderson/.config/google-chrome/Profile 3"
 EXECUTABLE_PATH = "/opt/google/chrome/google-chrome"
 PRODUCT_OFFER_URL = "https://affiliate.shopee.com.br/offer/product_offer"
-OUTPUT_FILE_SHOPEE = "ofertas_shopee.xlsx"
-MIN_DISCOUNT_PERCENT = 20   # ajuste para 0 se quiser coletar tudo
+OUTPUT_FILE_SHOPEE = "ofertas_shopee.json"  # Alterado para .json
+MIN_DISCOUNT_PERCENT = 20
 MAX_PAGES_TO_SCRAPE = 5
 
 # --- 🤖 INÍCIO DO SCRIPT ---
@@ -45,39 +46,31 @@ def scrape_shopee_offers():
                 for card in cards_produtos:
                     seletor_modal_wrap = 'div.ant-modal-wrap'
                     try:
-                        # --- desconto opcional ---
                         try:
                             discount_text = card.locator('span.DiscountBadge__discount').inner_text(timeout=2000)
                             discount_value = int(re.sub(r'\D', '', discount_text))
                         except:
-                            discount_value = 0  # sem badge de desconto
+                            discount_value = 0
 
                         if discount_value < MIN_DISCOUNT_PERCENT:
                             continue
 
                         titulo = card.locator('div.ItemCard__name').inner_text()
-                        
                         preco_raw = card.locator('span.price').inner_text()
                         preco = f"R$ {preco_raw}"
                         imagem_url = card.locator('div.ItemCard__image img').get_attribute('src')
                         taxa_comissao_el = card.locator('div.commRate')
                         taxa_comissao = taxa_comissao_el.inner_text() if taxa_comissao_el.count() > 0 else "N/A"
 
-                        # --- botão obter link ---
                         card.locator('button:has-text("Obter link")').click()
-                        
                         botao_copiar = pagina.locator('button:has-text("Copiar link")')
                         botao_copiar.wait_for(state="visible", timeout=7000)
-                        botao_copiar.click()
-
-                        
                         botao_copiar.click()
                         time.sleep(0.5)
                         
                         link_afiliado = pagina.evaluate("navigator.clipboard.readText()")
                         print(f"  [+] Link capturado para: {titulo[:40]}...")
                         
-                        # --- fechar pop-up ---
                         pagina.keyboard.press("Escape")
                         pagina.locator(seletor_modal_wrap).wait_for(state='hidden', timeout=5000)
 
@@ -111,14 +104,17 @@ def scrape_shopee_offers():
             
     return lista_de_ofertas
 
-def salvar_em_excel_shopee(ofertas):
+def salvar_em_json_shopee(ofertas):
     if not ofertas:
         print("🤷 Nenhuma oferta da Shopee foi encontrada para salvar.")
         return
-    df = pd.DataFrame(ofertas)
-    df.to_excel(OUTPUT_FILE_SHOPEE, index=False, engine='openpyxl')
+    
+    # Salva a lista de dicionários diretamente em um arquivo JSON
+    with open(OUTPUT_FILE_SHOPEE, 'w', encoding='utf-8') as f:
+        json.dump(ofertas, f, ensure_ascii=False, indent=4)
+        
     print(f"✅ {len(ofertas)} ofertas da Shopee salvas com sucesso em: '{OUTPUT_FILE_SHOPEE}'")
 
 if __name__ == "__main__":
     ofertas_coletadas_shopee = scrape_shopee_offers()
-    salvar_em_excel_shopee(ofertas_coletadas_shopee)
+    salvar_em_json_shopee(ofertas_coletadas_shopee)

@@ -1,4 +1,4 @@
-# scraper_compraCerta.py (VERSÃO FINAL E FUNCIONAL)
+# scraper_ml_json.py
 
 import time
 import pandas as pd
@@ -6,12 +6,13 @@ from playwright.sync_api import sync_playwright
 from datetime import datetime
 import os
 import random
+import json
 
 # --- ⚙️ CONFIGURAÇÕES ---
 USER_DATA_DIR = "/home/anderson/.config/google-chrome/Profile 1"
 EXECUTABLE_PATH = "/opt/google/chrome/google-chrome"
 HUB_URL = "https://www.mercadolivre.com.br/afiliados/hub#menu-user"
-OUTPUT_FILE = "ofertas_mercado_livre.xlsx"
+OUTPUT_FILE = "ofertas_mercado_livre.json" # Alterado para .json
 CATEGORIAS_ALVO = ["MAIS VENDIDO", "OFERTA DO DIA", "OFERTA RELÂMPAGO"]
 
 # --- 🤖 INÍCIO DO SCRIPT ---
@@ -68,29 +69,25 @@ def scrape_affiliate_hub():
                         preco = card.locator("span.andes-money-amount__fraction").inner_text()
                         imagem_url = card.locator("img.poly-component__picture").get_attribute("src")
 
-                        # --- LÓGICA FINAL PARA PEGAR O LINK ---
-                        # 1. Clica em compartilhar no card para abrir o pop-up
                         card.locator("button:has-text('Compartilhar')").click()
                         
-                        # 2. Dentro do pop-up, clica no botão "Copiar link" usando seu ID
                         botao_copiar_link_modal = pagina.locator('button#copy_link-undefined')
                         botao_copiar_link_modal.wait_for(state='visible', timeout=5000)
                         botao_copiar_link_modal.click()
 
-                        # 3. Espera pela mensagem de confirmação (opcional, mas bom para garantir)
                         pagina.wait_for_selector('p.andes-snackbar__message:has-text("Você copiou o link")', timeout=5000)
                         
-                        # 4. Lê o link da área de transferência
                         link_afiliado = pagina.evaluate("navigator.clipboard.readText()")
-                        
-                        # 5. Mostra o link capturado no console, como você pediu
                         print(f"      -> Link Capturado: {link_afiliado}")
                         
-                        # 6. Fecha o pop-up
                         pagina.locator('button[aria-label="Fechar"]').click()
                         time.sleep(0.5)
                         
-                        oferta = { "Produto": titulo, "Preço": f"R$ {preco}", "Categoria": highlight_text, "Link Afiliado": link_afiliado, "URL da Imagem": imagem_url, "Data Extracao": datetime.now().strftime("%Y-%m-%d %H-%M:%S")}
+                        oferta = {
+                            "Plataforma": "Mercado Livre", "Produto": titulo, "Preço": f"R$ {preco}", 
+                            "Categoria": highlight_text, "Link Afiliado": link_afiliado, 
+                            "URL da Imagem": imagem_url, "Data Extracao": datetime.now().strftime("%Y-%m-%d %H-%M:%S")
+                        }
                         lista_de_ofertas.append(oferta)
                         print(f"      -> Sucesso! Total de ofertas na lista: {len(lista_de_ofertas)}")
 
@@ -110,14 +107,17 @@ def scrape_affiliate_hub():
             
     return lista_de_ofertas
 
-def salvar_em_excel(ofertas):
+def salvar_em_json_ml(ofertas):
     if not ofertas:
         print("🤷 Nenhuma oferta encontrada para salvar.")
         return
-    df = pd.DataFrame(ofertas)
-    df.to_excel(OUTPUT_FILE, index=False, engine='openpyxl')
+    
+    # Salva a lista de dicionários diretamente em um arquivo JSON
+    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+        json.dump(ofertas, f, ensure_ascii=False, indent=4)
+        
     print(f"✅ {len(ofertas)} ofertas salvas com sucesso no arquivo: '{OUTPUT_FILE}'")
 
 if __name__ == "__main__":
     ofertas_coletadas = scrape_affiliate_hub()
-    salvar_em_excel(ofertas_coletadas)
+    salvar_em_json_ml(ofertas_coletadas)
