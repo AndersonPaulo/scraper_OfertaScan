@@ -1,0 +1,28 @@
+# Arquivos de Cache e Bytecode do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ambientes Virtuais
+.venv/
+venv/
+env/
+ENV/
+
+# Arquivos de Saída da Raspagem de Dados
+*.json
+*.xlsx
+*.csv
+
+# Arquivos de configuração de IDEs
+.vscode/
+.idea/
+
+# Logs e arquivos temporários
+*.log
+*.tmp
+
+# Dependências do Playwright (não devem ser versionadas)
+node_modules/
+playwright/
