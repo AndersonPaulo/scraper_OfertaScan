@@ -1,20 +1,32 @@
-# scraper_shopee_json.py
+# scraper_shopee_json.py (VERSÃO REVERTIDA PARA MÉTODO MANUAL)
 
 import time
-import pandas as pd
+import random
 from playwright.sync_api import sync_playwright
 from datetime import datetime, timezone
-import os
-import re
 import json
+import re
 
 # --- ⚙️ CONFIGURAÇÕES ---
+# O caminho do seu perfil do Chrome
 SHOPEE_USER_DATA_DIR = "/home/anderson/.config/google-chrome/Profile 3"
-EXECUTABLE_PATH = "/opt/google/chrome/google-chrome"
 PRODUCT_OFFER_URL = "https://affiliate.shopee.com.br/offer/product_offer"
-OUTPUT_FILE_SHOPEE = "ofertas_shopee.json"  # Alterado para .json
-MIN_DISCOUNT_PERCENT = 20
-MAX_PAGES_TO_SCRAPE = 5
+OUTPUT_FILE_SHOPEE = "ofertas_shopee.json"
+MIN_DISCOUNT_PERCENT = 10
+MAX_PAGES_TO_SCRAPE = 10
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+]
+
+js_stealth = "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+
+def human_click(locator):
+    locator.hover()
+    time.sleep(random.uniform(0.2, 0.6))
+    locator.click(delay=random.uniform(80, 250))
 
 # --- 🤖 INÍCIO DO SCRIPT ---
 
@@ -22,21 +34,35 @@ def scrape_shopee_offers():
     lista_de_ofertas = []
     
     with sync_playwright() as p:
+        # --- MODIFICAÇÃO: Voltando ao método connect_over_cdp ---
         print("🚀 Conectando ao navegador já aberto na porta 9222...")
         try:
             navegador = p.chromium.connect_over_cdp("http://localhost:9222")
             contexto = navegador.contexts[0]
+            
+            # Usando a primeira página/aba encontrada, como solicitado
             pagina = contexto.pages[0]
+            
+            # Mesmo no método antigo, ainda precisamos injetar o script anti-detecção
+            pagina.add_init_script(js_stealth)
             print("✅ Conexão bem-sucedida!")
-        except Exception:
-            print("❌ ERRO: Não foi possível conectar ao navegador da Shopee.")
+        except Exception as e:
+            print(f"❌ ERRO ao conectar ao navegador: {e}")
             return []
+        # --- FIM DA MODIFICAÇÃO ---
 
         try:
+            user_agent_aleatorio = random.choice(USER_AGENTS)
+            pagina.set_extra_http_headers({"User-Agent": user_agent_aleatorio})
+            print(f"🕵️ Usando User-Agent: {user_agent_aleatorio}")
+
             if PRODUCT_OFFER_URL not in pagina.url:
+                print(f"🌍 Navegando para: {PRODUCT_OFFER_URL}")
                 pagina.goto(PRODUCT_OFFER_URL, timeout=90000)
+            
             print("✅ Página de ofertas da Shopee carregada. Iniciando coleta...")
             
+            # (O restante do código de scraping permanece o mesmo)
             for page_num in range(1, MAX_PAGES_TO_SCRAPE + 1):
                 print(f"\n--- 📄 Processando Página {page_num}/{MAX_PAGES_TO_SCRAPE} ---")
                 pagina.wait_for_selector('div.product-offer-item', timeout=30000)
@@ -46,6 +72,7 @@ def scrape_shopee_offers():
                 for card in cards_produtos:
                     seletor_modal_wrap = 'div.ant-modal-wrap'
                     try:
+                        # ... (lógica de extração de dados)
                         try:
                             discount_text = card.locator('span.DiscountBadge__discount').inner_text(timeout=2000)
                             discount_value = int(re.sub(r'\D', '', discount_text))
@@ -62,11 +89,14 @@ def scrape_shopee_offers():
                         taxa_comissao_el = card.locator('div.commRate')
                         taxa_comissao = taxa_comissao_el.inner_text() if taxa_comissao_el.count() > 0 else "N/A"
 
-                        card.locator('button:has-text("Obter link")').click()
+                        human_click(card.locator('button:has-text("Obter link")'))
+                        
                         botao_copiar = pagina.locator('button:has-text("Copiar link")')
                         botao_copiar.wait_for(state="visible", timeout=7000)
-                        botao_copiar.click()
-                        time.sleep(0.5)
+
+                        human_click(botao_copiar)
+                        
+                        time.sleep(random.uniform(0.5, 1.2))
                         
                         link_afiliado = pagina.evaluate("navigator.clipboard.readText()")
                         print(f"  [+] Link capturado para: {titulo[:40]}...")
@@ -94,22 +124,25 @@ def scrape_shopee_offers():
                 next_button = pagina.locator('span.page-item.page-next:not(.disabled)')
                 if next_button.count() > 0 and page_num < MAX_PAGES_TO_SCRAPE:
                     print("  -> Clicando no botão 'Próxima Página'...")
-                    next_button.click()
-                    pagina.wait_for_load_state('networkidle', timeout=15000)
+                    
+                    human_click(next_button)
+                    time.sleep(random.uniform(1.5, 3.0))
+                    pagina.wait_for_load_state('networkidle', timeout=20000)
                 else:
                     print("🏁 Fim da navegação da Shopee.")
                     break
+
         except Exception as e:
             print(f"❌ Erro crítico no scraper da Shopee: {e}")
             
     return lista_de_ofertas
 
+# (O resto do script para salvar o JSON continua igual)
 def salvar_em_json_shopee(ofertas):
     if not ofertas:
         print("🤷 Nenhuma oferta da Shopee foi encontrada para salvar.")
         return
     
-    # Salva a lista de dicionários diretamente em um arquivo JSON
     with open(OUTPUT_FILE_SHOPEE, 'w', encoding='utf-8') as f:
         json.dump(ofertas, f, ensure_ascii=False, indent=4)
         
