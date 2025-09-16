@@ -3,7 +3,7 @@
 import time
 import pandas as pd
 from playwright.sync_api import sync_playwright
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import re
 import json
@@ -78,7 +78,7 @@ def scrape_shopee_offers():
                             "Plataforma": "Shopee", "Produto": titulo, "Preço": preco,
                             "Desconto": f"{discount_value}%", "Comissão": taxa_comissao,
                             "Link Afiliado": link_afiliado, "URL da Imagem": imagem_url,
-                            "Data Extracao": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            "Data Extracao": datetime.now(timezone.utc).isoformat()
                         }
                         lista_de_ofertas.append(oferta)
                     

@@ -1,14 +1,27 @@
-# main.py (Responsável por enviar dados para o Supabase)
+# main.py (Versão FINAL CORRIGIDA)
 import json
 import os
-from database import supabase_client # Importa o cliente já inicializado
+import unicodedata
+from database import supabase_client
 
 # Nomes dos arquivos JSON gerados pelos scrapers
 JSON_FILES = ["ofertas_shopee.json", "ofertas_mercado_livre.json"]
 TABLE_NAME = "ofertas"
 
+
+# --- Função para normalizar as chaves ---
+def normalize_key(key_string):
+    """
+    Converte uma string para o formato de coluna de DB.
+    """
+    nfkd_form = unicodedata.normalize('NFKD', key_string)
+    ascii_string = nfkd_form.encode('ASCII', 'ignore').decode('utf-8')
+    # MODIFICADO: Adicionado .replace('_da_', '_') para corrigir o nome da coluna da imagem
+    return ascii_string.lower().replace(' ', '_').replace('_da_', '_')
+
+
 def upload_offers_to_supabase():
-    """Lê os arquivos JSON locais e faz o upsert na tabela 'ofertas' do Supabase."""
+    """Lê os arquivos JSON, formata as chaves para o padrão do DB e faz o upsert."""
     if not supabase_client:
         print("❌ Upload cancelado. Cliente Supabase não está disponível.")
         return
@@ -24,30 +37,39 @@ def upload_offers_to_supabase():
         except FileNotFoundError:
             print(f"  ⚠️  Arquivo '{file_name}' não encontrado. Pulando.")
         except json.JSONDecodeError:
-            print(f"  ❌ Erro ao decodificar o JSON em '{file_name}'. O arquivo pode estar vazio ou corrompido.")
+            print(f"  ❌ Erro ao decodificar o JSON em '{file_name}'.")
 
     if not all_offers:
-        print("\n🤷 Nenhuma oferta encontrada nos arquivos para enviar. Encerrando.")
+        print("\n🤷 Nenhuma oferta encontrada para enviar. Encerrando.")
         return
 
-    print(f"\n--- ☁️  Enviando {len(all_offers)} ofertas para o Supabase ---")
+    print("\n--- 🔄 Formatando dados para o padrão do banco de dados (snake_case) ---")
+    formatted_offers = []
+    for offer in all_offers:
+        formatted_offer = {
+            normalize_key(key): value for key, value in offer.items()
+        }
+        
+        expected_columns = ['plataforma', 'produto', 'preco', 'categoria', 'desconto', 'comissao', 'link_afiliado', 'url_imagem', 'data_extracao']
+        for col in expected_columns:
+            if col not in formatted_offer:
+                formatted_offer[col] = None
+        
+        formatted_offers.append(formatted_offer)
+    print("  ✅ Formatação concluída.")
+
+    print(f"\n--- ☁️  Enviando {len(formatted_offers)} ofertas para o Supabase ---")
     print(f"   (Usando 'upsert' com a coluna 'link_afiliado' para evitar duplicatas)")
 
     try:
-        # 'upsert' insere novas ofertas e atualiza as existentes com base no 'link_afiliado'
-        # A coluna 'enviado_telegram' não é modificada se a oferta já existir
         data, count = supabase_client.table(TABLE_NAME).upsert(
-            all_offers,
+            formatted_offers,
             on_conflict='link_afiliado'
         ).execute()
-
         print("✅ Operação de Upsert concluída com sucesso!")
-        # O 'count' no resultado do upsert pode ser um pouco complexo de interpretar
-        # O mais importante é que a operação foi executada sem erros.
         
     except Exception as e:
         print(f"❌ Erro ao enviar dados para o Supabase: {e}")
 
 if __name__ == '__main__':
-    # Este script é executado para sincronizar os dados locais com a nuvem.
     upload_offers_to_supabase()

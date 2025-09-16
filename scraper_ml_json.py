@@ -3,7 +3,7 @@
 import time
 import pandas as pd
 from playwright.sync_api import sync_playwright
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import random
 import json
@@ -86,7 +86,7 @@ def scrape_affiliate_hub():
                         oferta = {
                             "Plataforma": "Mercado Livre", "Produto": titulo, "Preço": f"R$ {preco}", 
                             "Categoria": highlight_text, "Link Afiliado": link_afiliado, 
-                            "URL da Imagem": imagem_url, "Data Extracao": datetime.now().strftime("%Y-%m-%d %H-%M:%S")
+                            "URL da Imagem": imagem_url, "Data Extracao": datetime.now(timezone.utc).isoformat()
                         }
                         lista_de_ofertas.append(oferta)
                         print(f"      -> Sucesso! Total de ofertas na lista: {len(lista_de_ofertas)}")
