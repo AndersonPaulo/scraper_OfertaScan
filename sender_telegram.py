@@ -1,4 +1,4 @@
-# sender_telegram.py (VERSÃO FINAL CORRIGIDA)
+# sender_telegram.py (VERSÃO FINAL COM LÓGICA DE LOTES)
 import time
 import requests
 import os
@@ -6,7 +6,7 @@ import random
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 import pytz
-from database import supabase_client # <-- LINHA CORRIGIDA/ADICIONADA
+from database import supabase_client
 
 # --- CONFIGURAÇÕES E VALIDAÇÕES ---
 load_dotenv()
@@ -17,15 +17,13 @@ if not BOT_TOKEN or not CHANNEL_ID or not supabase_client:
     print("❌ ERRO: Verifique as variáveis de ambiente e a conexão com o Supabase.")
     exit()
 
-# --- TEMPLATES DE MENSAGEM ---
+# --- TEMPLATES E FUNÇÕES AUXILIARES (sem mudanças) ---
 MESSAGE_TEMPLATES = [
     "🔥 OFERTA IMPERDÍVEL NA {plataforma} 🔥\n\n{produto}\n💰 Por apenas: {preco}\n\n🛒 Compre aqui:\n{link}",
     "Oferta encontrada: 👀\n\n📦 {produto}\n👉 Por: {preco}\n\nConfira aqui:\n{link}",
     "Pesquisando preços... Achei! 👇\n\n✅ {produto} em promoção:\n💰 Agora: {preco}\n\n➡️ {link}",
     "Boa oportunidade pra quem estava procurando:\n\n✅ {produto}\n💰 Preço com desconto: {preco}\n\nConfira aqui 👉 {link}"
 ]
-
-# --- FUNÇÕES DE BANCO DE DADOS E ENVIO (sem mudanças) ---
 def get_unsent_offer(plataforma: str):
     try:
         response = supabase_client.table(TABLE_NAME).select("*").eq("enviado_telegram", False).eq("plataforma", plataforma).limit(1).execute()
@@ -48,16 +46,19 @@ def send_telegram_photo(token, channel, photo_url, caption):
 
 # --- LÓGICA PRINCIPAL DO BOT ---
 def start_telegram_sender():
-    print("🚀 Bot de envio do Telegram iniciado com lógica de alternância...")
+    print("🚀 Bot de envio do Telegram iniciado com lógica de lotes...")
     proxima_plataforma = "Shopee"
     fuso_horario_local = pytz.timezone("America/Sao_Paulo")
+    
+    # NOVO: Contador para o lote de mensagens
+    mensagens_enviadas_no_lote = 0
 
     while True:
         utc_now = datetime.now(timezone.utc)
         hora_local_obj = utc_now.astimezone(fuso_horario_local)
         hora_atual = hora_local_obj.hour
         
-        print(f"({hora_local_obj.strftime('%H:%M:%S')}) - ❤️  Iniciando novo ciclo de busca (Horário Local)...")
+        print(f"({hora_local_obj.strftime('%H:%M:%S')}) - ❤️  Iniciando novo ciclo de busca (Lote: {mensagens_enviadas_no_lote}/5)...")
 
         if 5 <= hora_atual < 23:
             print(f"({hora_local_obj.strftime('%H:%M')}) - 🔎 Buscando oferta da plataforma: {proxima_plataforma}...")
@@ -66,6 +67,7 @@ def start_telegram_sender():
                 plataforma_alternativa = "Mercado Livre" if proxima_plataforma == "Shopee" else "Shopee"
                 print(f"  -> Nenhuma oferta encontrada para '{proxima_plataforma}'. Tentando '{plataforma_alternativa}'...")
                 oferta = get_unsent_offer(plataforma_alternativa)
+            
             if oferta:
                 print(f"  -> ✅ Oferta encontrada: {oferta.get('produto', 'N/A')[:40]}...")
                 template_escolhido = random.choice(MESSAGE_TEMPLATES)
@@ -75,14 +77,25 @@ def start_telegram_sender():
                 )
                 if send_telegram_photo(BOT_TOKEN, CHANNEL_ID, oferta['url_imagem'], legenda_final):
                     if mark_offer_as_sent(oferta['id']):
-                        print(f"    -> ✅ Enviada e marcada no DB.")
-                else: print(f"    -> ❌ Falha no envio para o Telegram.")
-                intervalo = random.randint(60, 90)
-                print(f"    -> Pausando por {intervalo} segundos...")
-                time.sleep(intervalo)
+                        # MODIFICADO: Lógica de contagem e pausa
+                        mensagens_enviadas_no_lote += 1
+                        print(f"    -> ✅ Enviada e marcada no DB. (Mensagem {mensagens_enviadas_no_lote}/5 do lote)")
+
+                        if mensagens_enviadas_no_lote >= 5:
+                            print("    -> 🏁 Fim do lote de 5 mensagens. Pausando por 10 minutos...")
+                            time.sleep(600)  # Pausa longa de 10 minutos
+                            mensagens_enviadas_no_lote = 0 # Reinicia o contador
+                        else:
+                            intervalo = random.randint(60, 90)
+                            print(f"    -> Pausando por {intervalo} segundos antes da próxima mensagem do lote...")
+                            time.sleep(intervalo) # Pausa curta entre mensagens
+                else:
+                    print(f"    -> ❌ Falha no envio para o Telegram. Tentando novamente no próximo ciclo.")
+                    time.sleep(60) # Pausa curta após falha
             else:
                 print(f"({hora_local_obj.strftime('%H:%M')}) - 🤷 Nenhuma oferta nova no banco. Verificando novamente em 10 minutos.")
                 time.sleep(600)
+            
             proxima_plataforma = "Mercado Livre" if proxima_plataforma == "Shopee" else "Shopee"
         else:
             print(f"({hora_local_obj.strftime('%H:%M')}) - 😴 Fora do horário. Bot dormindo por 30 minutos.")

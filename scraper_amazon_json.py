@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright
 
 # --- ⚙️ CONFIGURAÇÕES ---
-USER_DATA_DIR = "/home/anderson/.config/google-chrome/Profile 2"  # ajuste para o perfil logado
+USER_DATA_DIR = "/home/anderson/.config/google-chrome/Profile 3"  # ajuste para o perfil logado
 EXECUTABLE_PATH = "/opt/google/chrome/google-chrome"
 AMAZON_BESTSELLERS_URL = "https://www.amazon.com.br/gp/bestsellers/?ref_=nav_em_cs_bestsellers_0_1_1_2"
 OUTPUT_FILE_AMAZON = "ofertas_amazon.json"
