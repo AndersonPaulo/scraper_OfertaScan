@@ -1,129 +1,151 @@
+# scraper_amazon_json.py
+
 import time
 import random
-import json
+from playwright.sync_api import sync_playwright, TimeoutError
 from datetime import datetime, timezone
-from playwright.sync_api import sync_playwright
+import json
+import re
 
 # --- ⚙️ CONFIGURAÇÕES ---
-USER_DATA_DIR = "/home/anderson/.config/google-chrome/Profile 3"  # ajuste para o perfil logado
-EXECUTABLE_PATH = "/opt/google/chrome/google-chrome"
-AMAZON_BESTSELLERS_URL = "https://www.amazon.com.br/gp/bestsellers/?ref_=nav_em_cs_bestsellers_0_1_1_2"
-OUTPUT_FILE_AMAZON = "ofertas_amazon.json"
-MAX_PRODUTOS = 100  # limite de produtos (pode aumentar)
+CDP_URL = "http://localhost:9222"
+OUTPUT_FILE = "scraper_amazon.json"
+MAX_PAGES_TO_SCRAPE = 5
 
-# --- 🤖 SCRAPER AMAZON ---
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 1.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+]
 
-def scrape_amazon_bestsellers():
-    ofertas = []
-
+# --- 🤖 INÍCIO DO SCRIPT DE SCRAPING ---
+def scrape_amazon_associates():
+    lista_de_dados = []
+    
     with sync_playwright() as p:
-        print("🚀 Iniciando navegador (perfil logado na Amazon)...")
-        contexto = p.chromium.launch_persistent_context(
-            user_data_dir=USER_DATA_DIR,
-            executable_path=EXECUTABLE_PATH,
-            headless=False,
-            args=['--start-maximized'],
-            no_viewport=True,
-        )
-        pagina = contexto.new_page()
+        print(f"🚀 Tentando conectar ao navegador na porta {CDP_URL}...")
+        try:
+            navegador = p.chromium.connect_over_cdp(CDP_URL)
+            contexto = navegador.contexts[0]
+            pagina = contexto.pages[0]
+            print("✅ Conexão bem-sucedida! Assumindo controle da primeira aba.")
+        
+        except Exception as e:
+            print(f"❌ ERRO: Não foi possível conectar ao navegador.")
+            print(f"   Verifique se você iniciou o Chrome com o comando: --remote-debugging-port=9222")
+            return []
 
         try:
-            print(f"🌍 Acessando: {AMAZON_BESTSELLERS_URL}")
-            pagina.goto(AMAZON_BESTSELLERS_URL, timeout=90000)
-            pagina.wait_for_load_state("networkidle", timeout=60000)
-            print("✅ Página dos Mais Vendidos carregada!")
+            print(f"🔗 URL atual da página controlada: {pagina.url}")
 
-            coletados = 0
+            seletor_obter_link = '#amzn-ss-get-link-button'
+            print(f"\n🔎 Verificando a presença do botão 'Obter link' ('{seletor_obter_link}')...")
+            
+            try:
+                pagina.wait_for_selector(seletor_obter_link, state='visible', timeout=20000)
+                print("✅ Barra de Associados e botão 'Obter link' encontrados! Prosseguindo...")
+            except TimeoutError:
+                print("\n❌ ERRO CRÍTICO: O botão 'Obter link' da barra de associados não foi encontrado.")
+                pagina.screenshot(path='screenshot_erro_final.png')
+                print("📸 Um screenshot ('screenshot_erro_final.png') foi salvo para análise.")
+                return []
 
-            # --- LOOP DE PÁGINAS ---
-            while True:
-                cards_produtos = pagina.locator("div.p13n-sc-uncoverable-faceout").all()
-                print(f"\n📦 {len(cards_produtos)} produtos encontrados nesta página.")
+            print("\n--- 🤖 Iniciando a lógica de scraping... ---")
+            pagina_atual = 1
 
-                for card in cards_produtos:
-                    if coletados >= MAX_PRODUTOS:
-                        print("⚠️ Limite de produtos atingido.")
-                        break
+            while pagina_atual <= MAX_PAGES_TO_SCRAPE:
+                print(f"\n--- 📄 Processando Página {pagina_atual}/{MAX_PAGES_TO_SCRAPE} ---")
+                
+                seletor_card_produto = '#gridItemRoot'
+                pagina.wait_for_selector(seletor_card_produto, timeout=30000)
+                todos_os_itens = pagina.locator(seletor_card_produto).all()
+                print(f"🔍 Encontrados {len(todos_os_itens)} produtos na página.")
 
+                for item in todos_os_itens:
                     try:
-                        titulo = card.locator("._cDEzb_p13n-sc-css-line-clamp-3_g3dy1").inner_text(timeout=3000)
-                        preco_atual = card.locator("span.p13n-sc-price")
-                        preco_antigo = card.locator("span.a-text-price")
+                        titulo_loc = item.locator('a.a-link-normal img')
+                        titulo = titulo_loc.get_attribute('alt') if titulo_loc.count() > 0 else "N/A"
 
-                        # 🔎 Só continua se for oferta (tem preço riscado)
-                        if preco_antigo.count() == 0:
-                            continue
+                        preco_loc = item.locator('span._cDEzb_p13n-sc-price_3mJ9Z')
+                        preco = preco_loc.inner_text() if preco_loc.count() > 0 else "N/A"
+                        
+                        # --- ATUALIZADO: Capturar preço antigo ---
+                        preco_antigo_loc = item.locator('span.a-text-strike')
+                        preco_antigo = None
+                        if preco_antigo_loc.count() > 0:
+                            preco_antigo_raw = preco_antigo_loc.inner_text().replace("R$", "").strip()
+                            preco_antigo = f"R$ {preco_antigo_raw}"
+                        # --- FIM DA ATUALIZAÇÃO ---
 
-                        preco = preco_atual.inner_text() if preco_atual.count() > 0 else "N/A"
-                        imagem_url = card.locator("img").get_attribute("src")
+                        imagem_url_loc = item.locator('a.a-link-normal img')
+                        imagem_url = imagem_url_loc.get_attribute('src') if imagem_url_loc.count() > 0 else "N/A"
 
-                        # Captura link de afiliado
-                        botao_link = card.locator("button#amzn-ss-get-link-button")
-                        if botao_link.count() == 0:
-                            print("  [x] Botão 'Obter link' não encontrado, pulando...")
-                            continue
+                        if titulo == "N/A" or preco == "N/A": continue
 
-                        botao_link.first.click()
-                        pagina.wait_for_selector("textarea#amzn-ss-text-shortlink-textarea", timeout=5000)
-                        link_afiliado = pagina.locator("textarea#amzn-ss-text-shortlink-textarea").input_value()
+                        print(f"  🛒 Produto: {titulo[:50]}...")
+                        
+                        get_link_button = pagina.locator(seletor_obter_link)
+                        get_link_button.click()
 
-                        # Fechar modal
-                        if pagina.locator("button[data-action='a-popover-close']").count() > 0:
-                            pagina.locator("button[data-action='a-popover-close']").click()
-                            time.sleep(0.3)
+                        link_textarea_selector = '#amzn-ss-text-shortlink-textarea'
+                        pagina.locator(link_textarea_selector).wait_for(state='visible', timeout=10000)
+                        
+                        link_afiliado = pagina.locator(link_textarea_selector).input_value()
+                        print(f"    🔗 Link de afiliado capturado: {link_afiliado}")
+                        
+                        pagina.keyboard.press("Escape")
+                        pagina.locator(link_textarea_selector).wait_for(state='hidden', timeout=5000)
 
-                        oferta = {
+                        dado = {
                             "Plataforma": "Amazon",
-                            "Produto": titulo,
-                            "Preço Atual": preco,
-                            "Preço Antigo": preco_antigo.inner_text(),
-                            "Link Afiliado": link_afiliado,
+                            "Produto": titulo.strip(),
+                            "Preco": preco.strip(),
+                            "preco_antigo": preco_antigo, # Campo adicionado
+                            "Link Afiliado": link_afiliado.strip(),
                             "URL da Imagem": imagem_url,
                             "Data Extracao": datetime.now(timezone.utc).isoformat()
                         }
-                        ofertas.append(oferta)
-                        coletados += 1
-                        print(f"  [+] Oferta capturada: {titulo[:50]}... ({coletados} no total)")
+                        lista_de_dados.append(dado)
 
                     except Exception as e:
-                        print(f"  [x] Erro ao processar produto: {e}")
+                        print(f"  [x] Erro ao processar um item: {e}")
+                        try:
+                            pagina.keyboard.press("Escape")
+                        except:
+                            pass
                         continue
 
-                # 👉 Próxima página
-                if coletados >= MAX_PRODUTOS:
+                next_button_selector = 'li.a-last a'
+                next_button = pagina.locator(next_button_selector)
+
+                if next_button.count() > 0 and pagina_atual < MAX_PAGES_TO_SCRAPE:
+                    print(f"  -> Indo para a página {pagina_atual + 1}...")
+                    next_button.click()
+                    pagina.wait_for_load_state('networkidle', timeout=30000)
+                    pagina_atual += 1
+                else:
+                    print("🏁 Não há mais páginas para navegar ou limite atingido. Fim do scraping.")
                     break
 
-                botao_next = pagina.locator("li.a-last a i.a-icon-next")
-                if botao_next.count() > 0 and botao_next.first.is_visible():
-                    print("➡️ Avançando para próxima página...")
-                    botao_next.first.click()
-                    pagina.wait_for_load_state("networkidle", timeout=20000)
-                    time.sleep(2)
-                else:
-                    print("🏁 Fim da navegação.")
-                    break
+            print("\n✅ Scraping concluído com sucesso!")
 
         except Exception as e:
-            print(f"❌ Erro crítico no scraper da Amazon: {e}")
-        finally:
-            print("🚪 Fechando navegador.")
-            contexto.close()
+            print(f"❌ Erro crítico durante o scraping: {e}")
+            pagina.screenshot(path='screenshot_erro_amazon.png')
+            print("📸 Screenshot 'screenshot_erro_amazon.png' salvo para análise.")
+            
+    return lista_de_dados
 
-    return ofertas
-
-
-# --- 💾 SALVAR EM JSON ---
-def salvar_em_json_amazon(ofertas):
-    if not ofertas:
-        print("🤷 Nenhuma oferta encontrada para salvar.")
+def salvar_em_json(dados):
+    if not dados:
+        print("🤷 Nenhum dado foi extraído para salvar.")
         return
-
-    with open(OUTPUT_FILE_AMAZON, 'w', encoding='utf-8') as f:
-        json.dump(ofertas, f, ensure_ascii=False, indent=4)
-
-    print(f"✅ {len(ofertas)} ofertas salvas com sucesso em: '{OUTPUT_FILE_AMAZON}'")
-
+    
+    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+        json.dump(dados, f, ensure_ascii=False, indent=4)
+        
+    print(f"💾 {len(dados)} registros salvos com sucesso em: '{OUTPUT_FILE}'")
 
 if __name__ == "__main__":
-    ofertas_coletadas_amazon = scrape_amazon_bestsellers()
-    salvar_em_json_amazon(ofertas_coletadas_amazon)
+    dados_coletados = scrape_amazon_associates()
+    salvar_em_json(dados_coletados)

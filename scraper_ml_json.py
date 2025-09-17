@@ -1,18 +1,15 @@
 # scraper_ml_json.py
 
 import time
-import pandas as pd
 from playwright.sync_api import sync_playwright
 from datetime import datetime, timezone
-import os
-import random
 import json
 
 # --- ⚙️ CONFIGURAÇÕES ---
 USER_DATA_DIR = "/home/anderson/.config/google-chrome/Profile 1"
 EXECUTABLE_PATH = "/opt/google/chrome/google-chrome"
 HUB_URL = "https://www.mercadolivre.com.br/afiliados/hub#menu-user"
-OUTPUT_FILE = "ofertas_mercado_livre.json" # Alterado para .json
+OUTPUT_FILE = "ofertas_mercado_livre.json"
 CATEGORIAS_ALVO = ["MAIS VENDIDO", "OFERTA DO DIA", "OFERTA RELÂMPAGO"]
 
 # --- 🤖 INÍCIO DO SCRIPT ---
@@ -67,6 +64,14 @@ def scrape_affiliate_hub():
 
                         print(f"    [+] Encontrado: {titulo[:50]}...")
                         preco = card.locator("span.andes-money-amount__fraction").inner_text()
+                        
+                        # --- ATUALIZADO: Capturar preço antigo ---
+                        preco_antigo_el = card.locator("s.andes-money-amount--previous span.andes-money-amount__fraction")
+                        preco_antigo = None
+                        if preco_antigo_el.count() > 0:
+                            preco_antigo = f"R$ {preco_antigo_el.inner_text()}"
+                        # --- FIM DA ATUALIZAÇÃO ---
+
                         imagem_url = card.locator("img.poly-component__picture").get_attribute("src")
 
                         card.locator("button:has-text('Compartilhar')").click()
@@ -84,9 +89,14 @@ def scrape_affiliate_hub():
                         time.sleep(0.5)
                         
                         oferta = {
-                            "Plataforma": "Mercado Livre", "Produto": titulo, "Preço": f"R$ {preco}", 
-                            "Categoria": highlight_text, "Link Afiliado": link_afiliado, 
-                            "URL da Imagem": imagem_url, "Data Extracao": datetime.now(timezone.utc).isoformat()
+                            "Plataforma": "Mercado Livre",
+                            "Produto": titulo,
+                            "Preco": f"R$ {preco}",
+                            "preco_antigo": preco_antigo, # Campo adicionado
+                            "Categoria": highlight_text,
+                            "Link Afiliado": link_afiliado, 
+                            "URL da Imagem": imagem_url,
+                            "Data Extracao": datetime.now(timezone.utc).isoformat()
                         }
                         lista_de_ofertas.append(oferta)
                         print(f"      -> Sucesso! Total de ofertas na lista: {len(lista_de_ofertas)}")
@@ -112,7 +122,6 @@ def salvar_em_json_ml(ofertas):
         print("🤷 Nenhuma oferta encontrada para salvar.")
         return
     
-    # Salva a lista de dicionários diretamente em um arquivo JSON
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
         json.dump(ofertas, f, ensure_ascii=False, indent=4)
         
