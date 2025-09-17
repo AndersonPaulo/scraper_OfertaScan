@@ -1,13 +1,14 @@
-# sender_telegram.py (VERSÃO FINAL COM AJUSTE DE FUSO HORÁRIO)
+# sender_telegram.py (VERSÃO FINAL CORRIGIDA)
 import time
 import requests
 import os
 import random
 from dotenv import load_dotenv
-from datetime import datetime, timezone # timezone é necessário
-import pytz # NOVO: Biblioteca para fusos horários
+from datetime import datetime, timezone
+import pytz
+from database import supabase_client # <-- LINHA CORRIGIDA/ADICIONADA
 
-# --- CONFIGURAÇÕES E VALIDAÇÕES (sem mudanças) ---
+# --- CONFIGURAÇÕES E VALIDAÇÕES ---
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN_TELEGRAM")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
@@ -15,6 +16,8 @@ TABLE_NAME = "ofertas"
 if not BOT_TOKEN or not CHANNEL_ID or not supabase_client:
     print("❌ ERRO: Verifique as variáveis de ambiente e a conexão com o Supabase.")
     exit()
+
+# --- TEMPLATES DE MENSAGEM ---
 MESSAGE_TEMPLATES = [
     "🔥 OFERTA IMPERDÍVEL NA {plataforma} 🔥\n\n{produto}\n💰 Por apenas: {preco}\n\n🛒 Compre aqui:\n{link}",
     "Oferta encontrada: 👀\n\n📦 {produto}\n👉 Por: {preco}\n\nConfira aqui:\n{link}",
@@ -47,12 +50,9 @@ def send_telegram_photo(token, channel, photo_url, caption):
 def start_telegram_sender():
     print("🚀 Bot de envio do Telegram iniciado com lógica de alternância...")
     proxima_plataforma = "Shopee"
-    
-    # NOVO: Define o fuso horário do Brasil
     fuso_horario_local = pytz.timezone("America/Sao_Paulo")
 
     while True:
-        # MODIFICADO: Converte a hora para o fuso horário local antes de verificar
         utc_now = datetime.now(timezone.utc)
         hora_local_obj = utc_now.astimezone(fuso_horario_local)
         hora_atual = hora_local_obj.hour
@@ -60,7 +60,6 @@ def start_telegram_sender():
         print(f"({hora_local_obj.strftime('%H:%M:%S')}) - ❤️  Iniciando novo ciclo de busca (Horário Local)...")
 
         if 5 <= hora_atual < 23:
-            # (O restante da lógica de envio permanece o mesmo)
             print(f"({hora_local_obj.strftime('%H:%M')}) - 🔎 Buscando oferta da plataforma: {proxima_plataforma}...")
             oferta = get_unsent_offer(proxima_plataforma)
             if not oferta:
